@@ -1,11 +1,18 @@
 """Methods to select representative population points from the transformed EDDM data."""
-import multiprocessing
+import arcpy
+import multiprocessing.dummy
 import os
-
+import json
 import geopandas as gpd
+import sys
 
+# sys.path.insert(0,"C:/code/repos/representative_population_generator/models/")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
 from models.etl import initiate
 from models.representative_population_points import farthest_first_traversal
+
+from functools import partial
+from itertools import repeat
 
 import numpy as np
 
@@ -13,6 +20,22 @@ from shapely import speedups
 
 speedups.enable()
 
+json_config = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'ETL_Toolbox_Config.json')
+
+with open(json_config) as json_file:
+
+    payload = json.load(json_file)
+
+    EXTRACT_DIRECTORY = payload["extract_dir"]
+    TRANSFORM_DIRECTORY = payload["transform_dir"]
+    PREDICT_DIRECTORY = payload["predict_dir"]
+    SCORES_DIRECTORY = payload["scores_dir"]
+    ARTIFACTS_DIRECTORY = payload["artifacts_dir"]
+    RAW_DIRECTORY = payload["raw_dir"]
+
+    COUNTIES_FILEPATH = payload["counties_json_dir"]
+    CENSUS_FILEPATH = payload["census_feats_dir"] 
+    ZIP_LIST_FILEPATH = payload["zipcode_dir"] 
 
 def select_points_using_model(
         input_gdf,
@@ -93,18 +116,25 @@ def select_points_using_model(
     return out_gdf
 
 
-def predict(input_filename):
+def predict(input_filename, distance_cutoffs=[5.0, 2.5, 0.5]):
     """Select representative population points using the provided model."""
+    
+    # cutoff_count = len(distance_cutoffs)
+
+    # if cutoff_count < 3:
+    #     raise Exception("Exception: 'distance_cutoffs' requires a minimum of 3 values.")
+   
     try:
         print('Predicting {}...'.format(input_filename))
 
         points = initiate.load_points(
             filename=input_filename,
-            directory=initiate.TRANSFORM_DIRECTORY,
+            directory=TRANSFORM_DIRECTORY,
             output_type='geopandas'
         )
 
-        distance_cutoffs = [5.0, 2.5, 0.5]  # Measured in miles
+        # Added as a parameter to the function
+        # distance_cutoffs = [5.0, 2.5, 0.5]  # Measured in miles
 
         model = farthest_first_traversal.FarthestFirstTraversal(
             k=10**4, distance_cutoff=distance_cutoffs[-1]
@@ -120,7 +150,7 @@ def predict(input_filename):
         initiate.store_points(
             data=selected_points,
             filename=input_filename,
-            directory=initiate.PREDICT_DIRECTORY,
+            directory=PREDICT_DIRECTORY,
         )
 
         scores = [input_filename]
@@ -128,7 +158,7 @@ def predict(input_filename):
         initiate.store_points(
             data=scores,
             filename=input_filename,
-            directory=initiate.SCORES_DIRECTORY,
+            directory=SCORES_DIRECTORY,
         )
 
         status = 'SUCCESS'
@@ -148,18 +178,21 @@ def predict(input_filename):
     )
 
 
-def predict_concurrently(zip_county_pairs, num_processors=8):
+def predict_concurrently(zip_county_pairs, cutoffs, num_processors=8):
     """Select representative population points concurrently."""
-    pool = multiprocessing.Pool(num_processors)
-    results = pool.map(predict, zip_county_pairs)
+    pool = multiprocessing.dummy.Pool(num_processors)
+
+    params_topass = zip(zip_county_pairs, repeat(cutoffs))
+    results = pool.starmap(predict, params_topass)
+    # results = pool.map(predict, zip_county_pairs)
 
     initiate.store_artifacts(results, 'predict_results.csv', verbose=False)
 
 
 def _get_remaining_service_areas():
     """Return service areas that still require predictions."""
-    transformed_zips = [f for f in os.listdir(initiate.TRANSFORM_DIRECTORY) if '.json' in f]
-    predicted_zips = {f for f in os.listdir(initiate.PREDICT_DIRECTORY) if '.json' in f}
+    transformed_zips = [f for f in os.listdir(TRANSFORM_DIRECTORY) if '.json' in f]
+    predicted_zips = {f for f in os.listdir(PREDICT_DIRECTORY) if '.json' in f}
 
     return [
         filename for filename in transformed_zips if filename not in predicted_zips
@@ -168,4 +201,10 @@ def _get_remaining_service_areas():
 
 if __name__ == '__main__':
     zip_county_pairs = _get_remaining_service_areas()
-    predict_concurrently(zip_county_pairs)
+
+    # Get the theoretical safe number of threads to run
+    # safe_thread_count = int(multiprocessing.cpu_count() / 2)
+    
+    # distance_cutoff = [5.0, 2.5, 0.5]
+
+    # predict_concurrently(zip_county_pairs, safe_thread_count)

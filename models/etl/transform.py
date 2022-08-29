@@ -1,11 +1,14 @@
 """Methods to clean and transform the raw data from the USPS EDDM tool."""
-import multiprocessing
+import multiprocessing.dummy
 import os
-
+import arcpy
 import geojson
-
+import json
 import geopandas as gpd
+import sys
 
+# sys.path.insert(0,"C:/code/repos/representative_population_generator/models/")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
 from models.etl import initiate
 
 import pandas as pd
@@ -14,7 +17,22 @@ import shapely
 from shapely import speedups
 
 speedups.enable()
+json_config = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'ETL_Toolbox_Config.json')
 
+with open(json_config) as json_file:
+
+    payload = json.load(json_file)
+
+    EXTRACT_DIRECTORY = payload["extract_dir"]
+    TRANSFORM_DIRECTORY = payload["transform_dir"]
+    PREDICT_DIRECTORY = payload["predict_dir"]
+    SCORES_DIRECTORY = payload["scores_dir"]
+    ARTIFACTS_DIRECTORY = payload["artifacts_dir"]
+    RAW_DIRECTORY = payload["raw_dir"]
+
+    COUNTIES_FILEPATH = payload["counties_json_dir"]
+    CENSUS_FILEPATH = payload["census_feats_dir"] 
+    ZIP_LIST_FILEPATH = payload["zipcode_dir"] 
 
 pd.options.mode.chained_assignment = None
 
@@ -38,6 +56,8 @@ def convert_json_data_to_geodataframe(json_data, spatial_reference='4326'):
             )
         new_feature['properties'] = feature['attributes']
         features.append(new_feature)
+
+    spatial_reference = f"epsg:{spatial_reference}"
 
     return gpd.GeoDataFrame.from_features(features, crs=spatial_reference)
 
@@ -130,7 +150,7 @@ def assign_county(point, counties):
 
 def assign_counties(points):
     """Assign each point of a GeoDataFrame to a county."""
-    counties = gpd.read_file(initiate.COUNTIES_FILEPATH)
+    counties = gpd.read_file(COUNTIES_FILEPATH)
     points['county'] = points['geometry'].apply(lambda p: assign_county(p, counties))
 
     null_mask = points['county'].isnull()
@@ -168,7 +188,7 @@ def transform(input_filename):
         print('Transforming {}...'.format(input_filename))
         json_data = initiate.load_points(
             filename=input_filename,
-            directory=initiate.EXTRACT_DIRECTORY,
+            directory=EXTRACT_DIRECTORY,
             output_type='json'
         )
         cleaned_df = _clean(json_data)
@@ -177,12 +197,12 @@ def transform(input_filename):
             df=cleaned_df,
             column='county'
         )
-
+        arcpy.AddMessage(points_by_county)
         for county, points in points_by_county.items():
             initiate.store_points(
                 data=points,
                 filename=input_filename[:5] + '_' + county.lower().replace(' ', '_') + '.json',
-                directory=initiate.TRANSFORM_DIRECTORY,
+                directory=TRANSFORM_DIRECTORY,
             )
 
         print('{} completed successfully!'.format(input_filename))
@@ -192,6 +212,7 @@ def transform(input_filename):
 
     except Exception as ex:
         print('Something went wrong with {}!'.format(input_filename))
+        print(f"\t{ex}")
         status = 'FAILURE'
         message = type(ex).__name__ + ' ' + str(ex)
 
@@ -204,7 +225,7 @@ def transform(input_filename):
 
 def transform_concurrently(zips, num_processors=8):
     """Transform data for the provided ZIP codes."""
-    pool = multiprocessing.Pool(num_processors)
+    pool = multiprocessing.dummy.Pool(num_processors)
     results = pool.map(transform, zips)
 
     initiate.store_artifacts(results, 'transform_results.csv', verbose=False)
@@ -212,8 +233,8 @@ def transform_concurrently(zips, num_processors=8):
 
 def _get_remaining_zips():
     """Return ZIPs that still require transformation."""
-    extracted_zips = [f for f in os.listdir(initiate.EXTRACT_DIRECTORY) if '.json' in f]
-    transformed_zips = {f[:5] for f in os.listdir(initiate.TRANSFORM_DIRECTORY) if '.json' in f}
+    extracted_zips = [f for f in os.listdir(EXTRACT_DIRECTORY) if '.json' in f]
+    transformed_zips = {f[:5] for f in os.listdir(TRANSFORM_DIRECTORY) if '.json' in f}
 
     return [
         filename for filename in extracted_zips if filename[:5] not in transformed_zips

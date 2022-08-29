@@ -3,29 +3,32 @@ import collections
 import csv
 import datetime
 import os
-
 import geojson
-
 import geopandas as gpd
+import json
 
 from shapely import speedups
 
 speedups.enable()
 
+json_config = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'ETL_Toolbox_Config.json')
 
-EXTRACT_DIRECTORY = 'data/etl/EDDM/extract/'
-TRANSFORM_DIRECTORY = 'data/etl/EDDM/transform/'
-PREDICT_DIRECTORY = 'data/etl/EDDM/predict/'
-SCORES_DIRECTORY = 'data/etl/EDDM/score/'
-ARTIFACTS_DIRECTORY = 'data/etl/artifacts/'
-RAW_DIRECTORY = 'data/etl/raw/'
+with open(json_config) as json_file:
 
-COUNTIES_FILEPATH = 'data/counties.json'
-CENSUS_FILEPATH = 'data/etl/raw/cb_2016_06_bg_500k'
-ZIP_LIST_FILEPATH = 'data/california_zips.tsv'
+    payload = json.load(json_file)
+
+    EXTRACT_DIRECTORY = payload["extract_dir"]
+    TRANSFORM_DIRECTORY = payload["transform_dir"]
+    PREDICT_DIRECTORY = payload["predict_dir"]
+    SCORES_DIRECTORY = payload["scores_dir"]
+    ARTIFACTS_DIRECTORY = payload["artifacts_dir"]
+    RAW_DIRECTORY = payload["raw_dir"]
+
+    COUNTIES_FILEPATH = payload["counties_json_dir"]
+    CENSUS_FILEPATH = payload["census_feats_dir"] 
+    ZIP_LIST_FILEPATH = payload["zipcode_dir"] 
 
 ETLResult = collections.namedtuple('ETLResult', 'name, status, message')
-
 
 def create_all_necessary_directories():
     """Create all required directories if they don't already exist."""
@@ -47,7 +50,7 @@ def load_points(filename, directory, output_type):
     Returns either a GeoDataFrame or a GeoJSON object.
     """
     path = os.path.join(directory, filename)
-
+    print('Loading points...')
     if output_type.lower() in ('json', 'geojson'):
         with open(path, 'r') as f:
             points = geojson.load(f)
@@ -57,7 +60,7 @@ def load_points(filename, directory, output_type):
                 raw_points = geojson.load(f)
             points = gpd.GeoDataFrame.from_features(
                 raw_points['features'],
-                crs={'init': 'epsg:4326'}
+                crs='epsg:4326'
             )
         except Exception:
             points = gpd.read_file(path, driver='GeoJSON')
@@ -72,7 +75,7 @@ def store_artifacts(results, filename, verbose=False):
     """Store ETL result objects as CSV."""
     filepath = os.path.join(ARTIFACTS_DIRECTORY, filename)
     time = datetime.datetime.now()
-
+    print('writing CSV...')
     if not verbose:
         results_to_write = [res for res in results if res.status != 'SUCCESS']
     else:

@@ -1,6 +1,9 @@
 """Methods to conclude the ETL process and remove artifacts."""
 import shutil
-
+import sys
+import os
+# sys.path.insert(0,"C:/code/repos/representative_population_generator/models/")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
 from models.etl import initiate
 
 

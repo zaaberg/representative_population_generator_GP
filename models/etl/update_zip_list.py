@@ -1,6 +1,11 @@
 """Methods to create a master list of California ZIP codes."""
 import os
 
+import sys
+
+# sys.path.insert(0,"C:/code/repos/representative_population_generator/models/")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
+
 from models.etl import initiate
 
 import pandas as pd
@@ -25,5 +30,5 @@ if __name__ == '__main__':
 
     update_zip_list(
         input_filepath=input_filepath,
-        output_filepath='data/california_zips.tsv'
+        output_filepath='C:/code/working/DMHC_Cal_HHS/data/california_zips.tsv'
     )

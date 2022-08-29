@@ -1,38 +1,58 @@
 """Methods to merge the results of the ETL process into a single file."""
+import arcpy
+
 import collections
 import os
 
 import geojson
-
+import json
 import geopandas as gpd
+import sys
 
+# sys.path.insert(0,"C:/code/repos/representative_population_generator/models/")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
 from models.etl import initiate
 
 from shapely import speedups
 
 speedups.enable()
 
+json_config = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'ETL_Toolbox_Config.json')
+
+with open(json_config) as json_file:
+
+    payload = json.load(json_file)
+
+    EXTRACT_DIRECTORY = payload["extract_dir"]
+    TRANSFORM_DIRECTORY = payload["transform_dir"]
+    PREDICT_DIRECTORY = payload["predict_dir"]
+    SCORES_DIRECTORY = payload["scores_dir"]
+    ARTIFACTS_DIRECTORY = payload["artifacts_dir"]
+    RAW_DIRECTORY = payload["raw_dir"]
+
+    COUNTIES_FILEPATH = payload["counties_json_dir"]
+    CENSUS_FILEPATH = payload["census_feats_dir"] 
+    ZIP_LIST_FILEPATH = payload["zipcode_dir"] 
 
 def merge_predictions():
     """Merge results of the ETL into a single GeoJSON feature collection."""
     filepaths = [
-        os.path.join(initiate.PREDICT_DIRECTORY, f)
-        for f in os.listdir(initiate.PREDICT_DIRECTORY) if '.json' in f
+        os.path.join(PREDICT_DIRECTORY, f)
+        for f in os.listdir(PREDICT_DIRECTORY) if '.json' in f
     ]
 
-    counties = gpd.read_file(initiate.COUNTIES_FILEPATH)
-    census_data = gpd.read_file(initiate.CENSUS_FILEPATH).to_crs({'init': 'epsg:4326'})
+    counties = gpd.read_file(COUNTIES_FILEPATH)
+    census_data = gpd.read_file(CENSUS_FILEPATH).to_crs('epsg:4326')
 
     output = []
 
     for idx, filepath in enumerate(filepaths):
-
-        zip_code = filepath[22:27]
-        county_name = filepath[28:-5]
+        zip_code = filepath[filepath.rfind('\\')+1:filepath.rfind('\\')+6]
+        county_name = filepath[filepath.rfind('\\')+7:-5]
         match = counties[counties['NAME'].apply(
             lambda name: name.lower().replace(' ', '_')
         ) == county_name]
-
+        
         county_fips = match['GEOID'].iloc[0]
         proper_county_name = match['NAME'].iloc[0]
 
@@ -119,7 +139,7 @@ def get_service_areas(json_data):
 def filter_data_by_county(json_data, valid_counties):
     """Return only JSON data for the specified counties."""
     return [
-        area for area in all_data if area['ServiceArea']['CountyName'] in valid_counties
+        area for area in json_data if area['ServiceArea']['CountyName'] in valid_counties
     ]
 
 
@@ -132,8 +152,8 @@ if __name__ == '__main__':
     )
     sample_service_areas = get_service_areas(sample_data)
 
-    initiate.store_points(all_data, 'eddm_data.json', 'data/')
-    initiate.store_points(sample_data, 'sample_eddm_data.json', 'data/')
+    initiate.store_points(all_data, 'eddm_data.json', 'C:/code/working/DMHC_Cal_HHS/data/')
+    initiate.store_points(sample_data, 'sample_eddm_data.json', 'C:/code/working/DMHC_Cal_HHS/data/')
 
-    initiate.store_points(all_service_areas, 'service_areas.json', 'data/')
-    initiate.store_points(sample_service_areas, 'sample_service_areas.json', 'data/')
+    initiate.store_points(all_service_areas, 'service_areas.json', 'C:/code/working/DMHC_Cal_HHS/data/')
+    initiate.store_points(sample_service_areas, 'sample_service_areas.json', 'C:/code/working/DMHC_Cal_HHS/data/')

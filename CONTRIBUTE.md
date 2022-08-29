@@ -1,3 +1,5 @@
+# *Notice**** - Updates are required to this page due to migration to ArcGIS GP Tool
+
 # Representative Population Generation
 
 This document is the guide on how you can contribute to this project.
