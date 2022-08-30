@@ -9,13 +9,6 @@ import os
 import pandas as pd
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
-import models.etl.initiate as config
-import models.etl.teardown as teardown
-import models.etl.extract as extract
-import models.etl.transform as transform_pop
-import models.etl.predict as predict_pop
-import models.etl.merge as merge_pop
 
 class Toolbox(object):
     def __init__(self):
@@ -38,16 +31,16 @@ class Runner(object):
     def getParameterInfo(self):
         """Define parameter definitions"""
         cutoffs = arcpy.Parameter(
-            displayName="Distance Cutoffs(Miles)",
+            displayName="Distance Cutoff Value in Miles",
             name="distance_cutoffs",
             datatype="GPString",
             parameterType="Required",
             direction="Input")
 
-        cutoffs.value = "5.0, 2.5, 0.5"
+        cutoffs.value = "0.5"
 
         teardown_bool = arcpy.Parameter(
-            displayName="Teardown previously run data",
+            displayName="Teardown Previous Data",
             name="teardown",
             datatype="GPBoolean",
             parameterType="Required",
@@ -55,7 +48,7 @@ class Runner(object):
         teardown_bool.value = True
 
         extract_bool = arcpy.Parameter(
-            displayName="Extract USPS info",
+            displayName="Extract USPS Info",
             name="extract",
             datatype="GPBoolean",
             parameterType="Required",
@@ -129,28 +122,27 @@ class Runner(object):
             direction="Input")
 
         counties_path = arcpy.Parameter(
-            displayName="Path to County features",
+            displayName="Path to County File",
             name="counties_path",
             datatype="DEFile",
             parameterType="Required",
             direction="Input")
         
         census_path = arcpy.Parameter(
-            displayName="Path to Census file",
+            displayName="Path to Census File",
             name="census_path",
-            datatype="DEFile",
+            datatype="DEFolder",
             parameterType="Required",
             direction="Input")
         
         zipcode_path = arcpy.Parameter(
-            displayName="Path to Zipcode file",
+            displayName="Path to Zip Code File",
             name="zipcode_path",
             datatype="DEFile",
             parameterType="Required",
             direction="Input")
 
-
-        output_dir= arcpy.Parameter(
+        output_dir = arcpy.Parameter(
             displayName="Output Directory",
             name="output_dir",
             datatype="DEFolder",
@@ -182,8 +174,8 @@ class Runner(object):
             parameterType="Derived",
             direction="Output")
 
-        params = [cutoffs, teardown_bool, extract_bool, predict_bool,
-        transform_bool, merge_bool, extract_dir, transform_dir, predict_dir,
+        params = [cutoffs, teardown_bool, extract_bool, transform_bool,
+        predict_bool, merge_bool, extract_dir, transform_dir, predict_dir,
         scores_dir, artifacts_dir, raw_dir, counties_path, census_path,
         zipcode_path, output_dir, output_eddm_json, output_eddm_json_sample]
 
@@ -228,7 +220,6 @@ class Runner(object):
         with open(json_config, 'w') as f:
             json.dump(payload, f)
 
-
     def exportAsCSV(self, input_json):
         '''Uses the existing outputs from script(JSON) and converts to a formatted CSV.'''
         output_csv = input_json.replace(".json",".csv")
@@ -239,7 +230,7 @@ class Runner(object):
 
                 # create the csv writer object
                 csv_writer = csv.writer(datafile)
-        
+
                 header = ["OriginName", "zipCode", "county", "CountyZip", "population", "longitude", "latitude",
                 "censusTract", "censusBlockGroup", "CreateDate"]
 
@@ -248,7 +239,10 @@ class Runner(object):
                 for pts in payload:
                     for record in pts["ReprPopPoints"]["PointA"]:
                         if len(record["properties"]["population"]) > 1:
+                            # Could add a for loop based on len() above
+                            # write a row for each population result & assign the cutoff param to new column
                             last_index = len(record["properties"]["population"]) - 1
+
                             origin_name = record["properties"]["county"]+str(record["properties"]["zip"])+'_'+str(record["geometry"]["coordinates"][1])+'_'+str(record["geometry"]["coordinates"][0])
                             zipcode = record["properties"]["zip"]
                             county = record["properties"]["county"]
@@ -289,10 +283,20 @@ class Runner(object):
         distances = parameters[0].valueAsText
         distance_cutoff = [float(i[:i.find(',')]) if i.find(',') != -1 else float(i) for i in distances.split()]
 
-        arcpy.AddMessage(f"Distance Cutoffs:{distance_cutoff}")
+        arcpy.AddMessage(f"Distance Cutoff:{distance_cutoff}")
 
         # Updates JSON config file with parameters set by user
         self.updateJSON(parameters)
+
+        # Moved import of model tools until later in script
+        # so JSON config is instantiated with user params
+        sys.path.append(os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
+        import models.etl.initiate as config
+        import models.etl.teardown as teardown
+        import models.etl.extract as extract
+        import models.etl.transform as transform_pop
+        import models.etl.predict as predict_pop
+        import models.etl.merge as merge_pop
 
         # # Teardown
         if parameters[1].valueAsText.lower() == 'true':
@@ -323,7 +327,7 @@ class Runner(object):
 
         except Exception as e:
             arcpy.AddMessage(e)
-        
+
         # Transform
         if parameters[3].valueAsText.lower() == 'true':
             arcpy.AddMessage("Run the transform...")
@@ -334,9 +338,9 @@ class Runner(object):
         if parameters[4].valueAsText.lower() == 'true':
             arcpy.AddMessage("Run the prediction...")    
             zip_county_pairs = predict_pop._get_remaining_service_areas()
-        
+
             predict_pop.predict_concurrently(zip_county_pairs, distance_cutoff, num_processors=safe_thread_count)
-            arcpy.AddMessage("\tPrediction complete.")    
+            arcpy.AddMessage("\tPrediction complete.")
 
         # Merge
         if parameters[5].valueAsText.lower() == 'true':
@@ -357,11 +361,11 @@ class Runner(object):
 
             eddm_json_output = os.path.join(parameters[15].valueAsText, 'eddm_data.json')
             sample_eddm_json_output = os.path.join(parameters[15].valueAsText, 'sample_eddm_data.json')
-            
+
             # Export the JSON files as CSV
             csv_output = self.exportAsCSV(eddm_json_output)
             csv_sample_output = self.exportAsCSV(sample_eddm_json_output)
-            
+
             # Set output parameters for GP response
             parameters[16].value = csv_output
             parameters[17].value = csv_sample_output
