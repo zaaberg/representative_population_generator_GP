@@ -6,8 +6,11 @@ import json
 import multiprocessing
 import multiprocessing.dummy
 import os
+import shutil
 import pandas as pd
 import sys
+
+from models.etl.predict import predict
 
 
 class Toolbox(object):
@@ -275,6 +278,13 @@ class Runner(object):
                             csv_writer.writerow(payload_write) 
         return(output_csv)
 
+    def deleteFiles(self, parent_path):
+        with os.scandir(parent_path) as entries:
+            for entry in entries:
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry.path)
+                else:
+                    os.remove(entry.path)
     def execute(self, parameters, messages):
         """The source code of the tool."""
 
@@ -308,7 +318,7 @@ class Runner(object):
         arcpy.AddMessage("Create directories...")
         config.create_all_necessary_directories()
         arcpy.AddMessage("Create directories complete.")
-
+        
         # Extract
         try:
             if parameters[2].valueAsText.lower() == 'true':
@@ -330,12 +340,22 @@ class Runner(object):
 
         # Transform
         if parameters[3].valueAsText.lower() == 'true':
+            # Cleans up any leftover files
+            transform_dir = parameters[7].valueAsText
+            self.deleteFiles(transform_dir)
+
             arcpy.AddMessage("Run the transform...")
             transform_pop.transform_concurrently(transform_pop._get_remaining_zips())
             arcpy.AddMessage("\tTransform complete.")
 
         # Predict
         if parameters[4].valueAsText.lower() == 'true':
+            # Cleans up any leftover files
+            predict_dir = parameters[8].valueAsText
+            self.deleteFiles(predict_dir)
+            scores_dir = parameters[9].valueAsText
+            self.deleteFiles(scores_dir)
+
             arcpy.AddMessage("Run the prediction...")    
             zip_county_pairs = predict_pop._get_remaining_service_areas()
 
